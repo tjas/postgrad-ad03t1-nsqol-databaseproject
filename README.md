@@ -67,10 +67,14 @@ The purpose of this activity is to allow students to apply data concepts in a di
 
 [![LinkedIn](https://img.shields.io/badge/-LinkedIn-blue?style=flat-square&logoColor=white&link=https://www.linkedin.com/in/thiago-tjas)](https://www.linkedin.com/in/thiago-tjas) [![YouTube](https://img.shields.io/badge/-YouTube-FF0000?style=flat-square&logoColor=white&link=https://www.youtube.com/@thiago_tjas)](https://www.youtube.com/@thiago_tjas) [![Instagram](https://img.shields.io/badge/-Instagram-E4405F?style=flat-square&logoColor=white&link=https://www.instagram.com/thiago.tjas/)](https://www.instagram.com/thiago.tjas/) [![Website](https://img.shields.io/badge/-Website-888888?style=flat-square&logoColor=white&link=http://thiago-tjas.com/)](http://thiago-tjas.com/) [![GitHub](https://img.shields.io/badge/-GitHub-555555?style=flat-square&logoColor=white&link=https://github.com/tjas)](https://github.com/tjas)
 
+**Nicole Tavares**, project maintainer.
+
+[![GitHub](https://img.shields.io/badge/-GitHub-555555?style=flat-square&logoColor=white&link=https://github.com/nicnicols)](https://github.com/nicnicols)
+
 ## Recommended citation
 
 If our work has been useful to you, we kindly ask you to cite it in one of the following formats:
-  * Santos, T.J.A. & Tavares, N. **Data Strategy with MongoDB**: case study on performance for data architecture strategie. Pontifical Catholic University of Minas Gerais, Postgraduation in Data Architecture, evaluative activity, GitHub repository, 2024. Retrieved June 2nd, 2024, from https://github.com/tjas/postgrad-ad03t1-nsqol-databaseproject
+  * Santos, T.J.A. & Tavares, N. **Data Strategy with MongoDB**: case study on performance for data architecture strategies. Pontifical Catholic University of Minas Gerais, Postgraduation in Data Architecture, evaluative activity, GitHub repository, 2024. Retrieved June 2nd, 2024, from https://github.com/tjas/postgrad-ad03t1-nsqol-databaseproject
   * Santos, T.J.A. & Tavares, N. (2024) **Data Strategy with MongoDB**: case study on performance for data architecture strategies. Pontifical Catholic University of Minas Gerais, Postgraduation in Data Architecture, evaluative activity, GitHub repository. Retrieved June 2nd, 2024, from https://github.com/tjas/postgrad-ad03t1-nsqol-databaseproject
 
 ## License

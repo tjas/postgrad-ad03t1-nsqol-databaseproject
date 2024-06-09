@@ -42,7 +42,6 @@ logging.basicConfig(filename='simulation.log', level=logging.INFO,
                     datefmt='%d/%m/%Y %H:%M:%S.%f',
                     handlers=[RotatingFileHandler('simulation.log', maxBytes=5*1024*1024, backupCount=1)])
 
-
 # Função para centralizar informações gerais
 def log_system_info() -> None:
     """Log general information about the system and the simulation parameters."""
@@ -100,6 +99,7 @@ def check_and_create_db(uri: str, db_name: str, collections: list) -> None:
                 logging.info(f"Collection '{collection}' created in database '{db_name}'.")
             else:
                 logging.info(f"Collection '{collection}' already exists in database '{db_name}'.")
+                
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
         logging.error(f"Failed to connect to MongoDB ({MONGO_URI}): {e}")
 
@@ -140,9 +140,9 @@ def generate_fake_store(min_products: int, max_products: int) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: A dictionary representing a fake store.
     """
-    store_id = fake.unique.uuid4()
+    # store_id = fake.unique.uuid4()
     return {
-        'store_id': store_id,
+        'store_id': fake.unique.uuid4(),
         'store_name': fake.company(),
         'address': fake.address(),
         'phone': fake.phone_number(),
@@ -267,20 +267,20 @@ def update_inventory(store_id: str, product_id: str, quantity: int) -> float:
 
 # Função para adicionar uma nova filial
 def add_store() -> None:
-    """Add a new store to the database with a 10% chance."""
-    if random.random() < 0.1:  # 10% de chance de adicionar uma nova filial
+    """Add a new store to the database with a 30% chance."""
+    if random.random() < 0.3:  # 30% de chance de adicionar uma nova filial
         store = generate_fake_store(min_products=5, max_products=20)
         stores_collection.insert_one(store)
     
 
 # Função para adicionar um novo produto
 def add_product(store_id: str) -> None:
-    """Add a new product to a store with a 10% chance.
+    """Add a new product to a store with a 30% chance.
 
     Args:
         store_id (str): The ID of the store to add the product to.
     """
-    if random.random() < 0.1:  # 10% de chance de adicionar um novo produto
+    if random.random() < 0.3:  # 30% de chance de adicionar um novo produto
         new_product = generate_fake_product()
         products_collection.insert_one({**new_product, 'store_id': store_id})
 
