@@ -31,7 +31,7 @@ Projeto para avaliar a performance de bancos de dados na discicplina "Bancos de 
 Pontifícia Universidade Católica de Minas Gerais (PUC Minas)
 Diretoria de Educação Continuada (IEC)
 Pós-Graduação em Arquitetura de Dados (AD03T1, 1/2024)
-Banco de Ddaos Relacionais e Não Relacionais
+Banco de Dados Relacionais e Não Relacionais
 Atividade Avaliativa 03 - Projeto de Banco de Dados
 
 Nicole Tavares

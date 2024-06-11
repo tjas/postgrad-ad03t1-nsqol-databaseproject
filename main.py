@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-#import os
+import os
 import random
 import pymongo
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
@@ -16,7 +16,11 @@ from typing import List, Tuple, Any, Dict
 import platform
 import psutil
 import matplotlib.pyplot as plt
+#import numpy as np
 from tqdm import tqdm
+import numpy as np
+import pandas as pd
+#import mplfinance as mpf
 
 
 __author__      = "Thiago Jorge Almeida dos Santos"
@@ -37,9 +41,10 @@ __status__      = "development"
 fake = Faker()
 
 # Configurar Logging
-logging.basicConfig(filename='simulation.log', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    datefmt='%d/%m/%Y %H:%M:%S.%f',
+#logging.basicConfig(filename='simulation.log', level=logging.INFO,
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s.%(msecs)03d %(process)5s [%(levelname)s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S',
                     handlers=[RotatingFileHandler('simulation.log', maxBytes=5*1024*1024, backupCount=1)])
 
 # Função para centralizar informações gerais
@@ -47,12 +52,9 @@ def log_system_info() -> None:
     """Log general information about the system and the simulation parameters."""
     system_info = {
         'Datetime': datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
-        'OS': platform.system(),
-        'OS Version': platform.version(),
-        'CPU': platform.processor(),
-        'CPU Cores': multiprocessing.cpu_count(),
-        'RAM': f"{psutil.virtual_memory().total / (1024 ** 3):.2f} GB",
-        'RAM Available': f"{psutil.virtual_memory().available / (1024 ** 3):.2f} GB"
+        'OS/Version': f"{platform.system()} / {platform.version()}",
+        'CPU/Cores': f"{platform.processor()} / {multiprocessing.cpu_count()}",
+        'RAM/Available': f"{psutil.virtual_memory().total / (1024 ** 3):.2f} GB / {psutil.virtual_memory().available / (1024 ** 3):.2f} GB",
     }
     for key, value in system_info.items():
         logging.info(f"{key}: {value}")
@@ -64,31 +66,39 @@ def log_system_info() -> None:
 ############
 
 # Configurar MongoDB
-MONGO_URI = 'mongodb://localhost:27017/'
+MONGO_HOST = 'localhost'
+MONGO_PORT = 27013
 DB_NAME = 'inventory_db'
 COLLECTIONS = ['stores', 'products', 'sales']
-
-# Configurar MongoDB
-client = pymongo.MongoClient('mongodb://localhost:27017/')
-db = client['inventory_db']
-stores_collection = db['stores']
-products_collection = db['products']
-sales_collection = db['sales']
+USER = 'admin'
+PASS = 'admin'
 
 
-def check_and_create_db(uri: str, db_name: str, collections: list) -> None:
+db = None
+stores_collection = None
+products_collection = None
+sales_collection = None
+
+
+def check_and_create_db(host: str, port: int, db_name: str, username: str = 'admin', password: str = 'admin', collections: list = []) -> Any:
     """Check if the MongoDB database and collections exist, and create them if they don't.
 
     Args:
-        uri (str): The MongoDB URI.
+        host (str): The MongoDB host.
+        port (str): The MongoDB port.
         db_name (str): The name of the database.
-        collections (list): A list of collection names to check/create.
+        username (str, optional): The username for authentication. Defaults to 'admin'.
+        password (str, optional): The password for authentication. Defaults to 'admin'.
+        collections (list, optional): A list of collection names to check/create. Defaults to an empty list.
     """
+    uri = f'mongodb://{username}:{password}@{host}'
+    db = None
     try:
-        client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
+        #client = pymongo.MongoClient(uri, port, serverSelectionTimeoutMS=5000)
+        client = pymongo.MongoClient(uri, port)
         # Test the connection
         client.admin.command('ping')
-        logging.info(f"Connected to MongoDB ({MONGO_URI}) successfully.")
+        logging.info(f"Connected to MongoDB ({MONGO_HOST}) successfully.")
 
         db = client[db_name]
 
@@ -99,9 +109,12 @@ def check_and_create_db(uri: str, db_name: str, collections: list) -> None:
                 logging.info(f"Collection '{collection}' created in database '{db_name}'.")
             else:
                 logging.info(f"Collection '{collection}' already exists in database '{db_name}'.")
-                
+           
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-        logging.error(f"Failed to connect to MongoDB ({MONGO_URI}): {e}")
+        logging.error(f"Failed to connect to MongoDB ({MONGO_HOST}): {e}")
+        
+    return db
+    
 
 
 ####################
@@ -124,7 +137,8 @@ def generate_fake_product() -> Dict[str, Any]:
         'stock_quantity': random.randint(0, 1000),
         'manufacturer': fake.company(),
         'sku': fake.unique.ean13(),
-        'expiry_date': fake.date_between(start_date='today', end_date='+2y'),
+        'expiry_date': fake.date_time_between(start_date=datetime.now(), end_date='+2y'),
+        #'expiry_date': datetime.strptime(fake.date_between(start_date='today', end_date='+2y'), '%Y-%m-%d %H:%M:%S'),
         'supplier': fake.company()
     }
 
@@ -148,7 +162,9 @@ def generate_fake_store(min_products: int, max_products: int) -> Dict[str, Any]:
         'phone': fake.phone_number(),
         'manager_name': fake.name(),
         'email': fake.company_email(),
-        'opening_date': fake.date_between(start_date='-10y', end_date='today'),
+        #'opening_date': fake.date_time_between(start_date='-10y', end_date='today'),
+        'opening_date': fake.date_time_between(start_date='-10y', end_date=datetime.now()),
+        #'opening_date': datetime.strptime(fake.date_between(start_date='-10y', end_date='today'), '%Y-%m-%d %H:%M:%S'),
         'number_of_employees': random.randint(5, 50),
         'store_area': round(random.uniform(50.0, 500.0), 2),
         'products': [generate_fake_product() for _ in range(random.randint(min_products, max_products))]
@@ -172,6 +188,7 @@ def generate_fake_sale(store_id: str, product_id: str) -> Dict[str, Any]:
         'product_id': product_id,
         'quantity_sold': random.randint(1, 10),
         'sale_date': fake.date_time_this_year(),
+        #'sale_date': datetime.strptime(fake.date_time_this_year(), '%Y-%m-%d %H:%M:%S'),
         'customer_id': fake.unique.uuid4(),
         'customer_name': fake.name(),
         'payment_method': random.choice(['Credit Card', 'Cash', 'Debit Card']),
@@ -266,23 +283,29 @@ def update_inventory(store_id: str, product_id: str, quantity: int) -> float:
 
 
 # Função para adicionar uma nova filial
-def add_store() -> None:
+def add_store() -> float:
     """Add a new store to the database with a 30% chance."""
-    if random.random() < 0.3:  # 30% de chance de adicionar uma nova filial
-        store = generate_fake_store(min_products=5, max_products=20)
-        stores_collection.insert_one(store)
+    #if random.random() < 0.3:  # 30% de chance de adicionar uma nova filial
+    start_time = time.time()
+    store = generate_fake_store(min_products=5, max_products=20)
+    stores_collection.insert_one(store)
+    end_time = time.time()
+    return end_time - start_time
     
 
 # Função para adicionar um novo produto
-def add_product(store_id: str) -> None:
+def add_product(store_id: str) -> float:
     """Add a new product to a store with a 30% chance.
 
     Args:
         store_id (str): The ID of the store to add the product to.
     """
-    if random.random() < 0.3:  # 30% de chance de adicionar um novo produto
-        new_product = generate_fake_product()
-        products_collection.insert_one({**new_product, 'store_id': store_id})
+    #if random.random() < 0.3:  # 30% de chance de adicionar um novo produto
+    start_time = time.time()
+    new_product = generate_fake_product()
+    products_collection.insert_one({**new_product, 'store_id': store_id})
+    end_time = time.time()
+    return end_time - start_time
 
 
 ##############
@@ -300,7 +323,7 @@ def get_num_cores() -> int:
 
 
 # Simular consultas simultâneas
-def simulate_operations(num_operations: int, stores: List[Dict[str, Any]], percent_cores: float) -> Tuple[List[float], List[float], Dict[str, int]]:
+def simulate_operations(num_operations: int, stores: List[Dict[str, Any]], percent_cores: float, run_number: int, output_folder: str) -> Tuple[List[float], List[float], Dict[str, int]]:
     """Simulate concurrent operations on the database.
 
     Args:
@@ -313,6 +336,7 @@ def simulate_operations(num_operations: int, stores: List[Dict[str, Any]], perce
     """
     num_cores = get_num_cores()
     max_workers = max(1, int(num_cores * percent_cores))
+    logging.info(f"Number of cores to be used: {max_workers}")
 
     read_times: List[float] = []
     write_times: List[float] = []
@@ -324,56 +348,165 @@ def simulate_operations(num_operations: int, stores: List[Dict[str, Any]], perce
     }
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
+        future_to_operation = {}
         for _ in range(num_operations):
             store = random.choice(stores)
             operation = random.choice(['query_stock', 'update_inventory', 'add_store', 'add_product'])
             if operation == 'query_stock':
-                futures.append(executor.submit(query_stock, store['store_id']))
+                future = executor.submit(query_stock, store['store_id'])
             elif operation == 'update_inventory':
                 product = random.choice(store['products'])
-                futures.append(executor.submit(update_inventory, store['store_id'], product['product_id'], random.randint(1, 10)))
+                future = executor.submit(update_inventory, store['store_id'], product['product_id'], random.randint(1, 10))
             elif operation == 'add_store':
-                futures.append(executor.submit(add_store))
+                future = executor.submit(add_store)
             elif operation == 'add_product':
-                futures.append(executor.submit(add_product, store['store_id']))
+                future = executor.submit(add_product, store['store_id'])
+            future_to_operation[future] = operation
 
-        for future in tqdm(as_completed(futures), total=num_operations, desc="Operations Progress"):
+        for future in tqdm(as_completed(future_to_operation), total=num_operations, desc=f"Operations Progress {run_number}"):
             try:
                 result = future.result()
-                if isinstance(result, tuple):
-                    read_times.append(result[1])
+                operation = future_to_operation[future]
+                if operation == 'query_stock':
+                    read_times.append(result[1] * 1000)  # Convert to milliseconds
                     operation_counts['query_stock'] += 1
                 else:
-                    write_times.append(result)
-                    if 'update_inventory' in future._fn.__name__:
+                    write_times.append(result * 1000)  # Convert to milliseconds
+                    if operation == 'update_inventory':
                         operation_counts['update_inventory'] += 1
-                    elif 'add_store' in future._fn.__name__:
+                    elif operation == 'add_store':
                         operation_counts['add_store'] += 1
-                    elif 'add_product' in future._fn.__name__:
+                    elif operation == 'add_product':
                         operation_counts['add_product'] += 1
             except Exception as e:
-                logging.error(f"Error: {e}")
-    
+                logging.error(e)
+
+    # Generate individual run plots
+    plot_individual_times(run_number, read_times, write_times, output_folder)
+
     return read_times, write_times, operation_counts
 
 
-# Registrar desempenho
-def measure_performance(runs: int = 10, num_operations: int = 1000, percent_cores: float = 0.5, num_sales: int = 50, num_stores: int = 5, min_products: int = 5, max_products: int = 20) -> None:
-    """Measure the performance of the simulation over multiple runs.
+#TIME_LABEL = 'Time (ms)'
 
-    Args:
-        runs (int): The number of runs to execute. Default is 10.
-        num_operations (int): The number of operations per simulation. Default is 1000.
-        percent_cores (float): The percentage of CPU cores to use. Default is 0.5.
-        num_sales (int): The number of initial sales to insert. Default is 50.
-        num_stores (int): The number of initial stores to insert. Default is 5.
-        min_products (int): The minimum number of products in a store. Default is 5.
-        max_products (int): The maximum number of products in a store. Default is 20.
-    """
+def plot_individual_times(run: int, read_times: List[float], write_times: List[float], output_folder: str, chart_width: int = 600) -> None:
+    # Scatter plot for read times
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.scatter(range(len(read_times)), read_times)
+    plt.title(f'Read Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.xticks(np.arange(0, len(read_times), max(1, len(read_times) // 10)))
+    plt.yticks(np.arange(0, max(read_times) + 5, 5))
+    plt.savefig(os.path.join(output_folder, f'read_times_run_{run + 1}.png'))
+    plt.close()
+
+    # Scatter plot for write times
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.scatter(range(len(write_times)), write_times)
+    plt.title(f'Write Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.xticks(np.arange(0, len(write_times), max(1, len(write_times) // 10)))
+    plt.yticks(np.arange(0, max(write_times) + 5, 5))
+    plt.savefig(os.path.join(output_folder, f'write_times_run_{run + 1}.png'))
+    plt.close()
+
+    # Scatter plot for total times
+    total_times = [r + w for r, w in zip(read_times, write_times)]
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.scatter(range(len(total_times)), total_times)
+    plt.title(f'Total Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.xticks(np.arange(0, len(total_times), max(1, len(total_times) // 10)))
+    plt.yticks(np.arange(0, max(total_times) + 5, 5))
+    plt.savefig(os.path.join(output_folder, f'total_times_run_{run + 1}.png'))
+    plt.close()
+
+    # Bar chart with average line for read times
+    avg_read_time = sum(read_times) / len(read_times) if read_times else 0
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.bar(range(len(read_times)), read_times)
+    plt.axhline(y=avg_read_time, color='r', linestyle='-', label=f'Avg: {avg_read_time:.2f} ms')
+    plt.title(f'Read Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max(read_times) + 5, 5))
+    plt.xticks(np.arange(0, len(read_times), max(1, len(read_times) // 10)))
+    # for i, v in enumerate(read_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, f'read_bar_run_{run + 1}.png'))
+    plt.close()
+
+    # Bar chart with average line for write times
+    avg_write_time = sum(write_times) / len(write_times) if write_times else 0
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.bar(range(len(write_times)), write_times)
+    plt.axhline(y=avg_write_time, color='r', linestyle='-', label=f'Avg: {avg_write_time:.2f} ms')
+    plt.title(f'Write Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max(write_times) + 5, 5))
+    plt.xticks(np.arange(0, len(write_times), max(1, len(write_times) // 10)))
+    # for i, v in enumerate(write_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, f'write_bar_run_{run + 1}.png'))
+    plt.close()
+
+    # Bar chart with average line for total times
+    avg_total_time = sum(total_times) / len(total_times) if total_times else 0
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.bar(range(len(total_times)), total_times)
+    plt.axhline(y=avg_total_time, color='r', linestyle='-', label=f'Avg: {avg_total_time:.2f} ms')
+    plt.title(f'Total Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max(total_times) + 5, 5))
+    plt.xticks(np.arange(0, len(total_times), max(1, len(total_times) // 10)))
+    # for i, v in enumerate(total_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, f'total_bar_run_{run + 1}.png'))
+    plt.close()
+    
+    
+    # Encontre o tamanho máximo entre os dois arrays
+    max_size = max(len(read_times), len(write_times))
+
+    # Ajuste os arrays para terem o mesmo tamanho
+    read_times_adjusted = np.pad(read_times, (0, max_size - len(read_times)), 'constant', constant_values=(0))
+    write_times_adjusted = np.pad(write_times, (0, max_size - len(write_times)), 'constant', constant_values=(0))
+
+    # Bar chart comparing read and write times for each run
+    plt.figure(figsize=(chart_width / 100, 6))
+    bar_width = 0.35
+    # Agora, use read_times_adjusted e write_times_adjusted para o plot
+    #index = np.arange(len(read_times))
+    index = np.arange(max_size)
+    # plt.bar(index, read_times, bar_width, label='Read Time')
+    plt.bar(index, read_times_adjusted, bar_width, label='Read Time')
+    # plt.bar(index + bar_width, write_times, bar_width, label='Write Time')
+    plt.bar(index + bar_width, write_times_adjusted, bar_width, label='Write Time')
+    plt.title(f'Read vs Write Times for Run {run + 1}')
+    plt.xlabel('Operation')
+    plt.ylabel('Time (ms)')
+    # Ajuste plt.xticks para corresponder ao número de operações
+    # plt.xticks(index + bar_width / 2, np.arange(0, len(read_times), max(1, len(read_times) // 10)))
+    plt.xticks(index + bar_width / 2, np.arange(max_size))
+    plt.yticks(np.arange(0, max(read_times + write_times) + 5, 5))
+    plt.legend()
+    plt.savefig(os.path.join(output_folder, f'read_vs_write_run_{run + 1}.png'))
+    plt.close()
+    
+
+# Registrar desempenho
+def measure_performance(runs: int = 10, num_operations: int = 1000, percent_cores: float = 0.5, num_sales: int = 50, num_stores: int = 5, min_products: int = 5, max_products: int = 20, chart_width: int = 600) -> None:
     total_times: List[float] = []
-    all_read_times: List[float] = []
-    all_write_times: List[float] = []
+    all_read_times: List[List[float]] = []
+    all_write_times: List[List[float]] = []
     total_operations: Dict[str, int] = {
         'query_stock': 0,
         'update_inventory': 0,
@@ -381,59 +514,265 @@ def measure_performance(runs: int = 10, num_operations: int = 1000, percent_core
         'add_product': 0
     }
 
-    for run in tqdm(range(runs), desc="Simulation Runs"):
+    # Configurações de simulação
+    num_cores = get_num_cores()
+    max_workers = max(1, int(num_cores * percent_cores))
+    
+    logging.info(f"Starting simulation with {runs} runs and {num_operations} operations per run.")
+    logging.info(f"Using {max_workers} out of {num_cores} cores.")
+
+    print(f"Starting simulation with {runs} runs and {num_operations} operations per run.")
+    print(f"Using {max_workers} out of {num_cores} cores.")
+
+    # Criar diretório para salvar gráficos e logs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_folder = os.path.join("executions", timestamp)
+    os.makedirs(output_folder, exist_ok=True)
+
+    log_file = os.path.join(output_folder, 'simulation_log.txt')
+    file_handler = logging.FileHandler(log_file)
+    logging.getLogger().addHandler(file_handler)
+
+    # for run in tqdm(range(runs), desc="Simulation Runs"):
+    for run in range(runs):
         start_time = time.time()
         stores = insert_stores(num_stores, min_products, max_products)
         insert_sales(num_sales, stores)
-        read_times, write_times, operation_counts = simulate_operations(num_operations, stores, percent_cores)
+        read_times, write_times, operation_counts = simulate_operations(num_operations, stores, percent_cores, run, output_folder)
         end_time = time.time()
-        
-        total_times.append(end_time - start_time)
-        all_read_times.extend(read_times)
-        all_write_times.extend(write_times)
+
+        total_times.append((end_time - start_time) * 1000)  # Convert to milliseconds
+        all_read_times.append(read_times)
+        all_write_times.append(write_times)
         for key in total_operations:
             total_operations[key] += operation_counts[key]
+            
+        #print("\n\n", all_read_times, "\n\n")
+
+        # avg_read_time = sum(all_read_times) / len(all_read_times) if all_read_times else 0
+        # avg_write_time = sum(all_write_times) / len(all_write_times) if all_write_times else 0
+        # avg_total_time = sum(total_times) / len(total_times) if total_times else 0
         
-        avg_total_time = sum(total_times) / len(total_times)
-        avg_read_time = sum(all_read_times) / len(all_read_times)
-        avg_write_time = sum(all_write_times) / len(all_write_times)
-        
-        logging.info(f"Run {run + 1} - Total execution time: {end_time - start_time:.4f} seconds")
+        avg_read_time = sum([sum(rt) for rt in all_read_times]) / len(all_read_times) if all_read_times else 0
+        avg_write_time = sum([sum(wt) for wt in all_write_times]) / len(all_write_times) if all_write_times else 0
+        avg_total_time = sum(total_times) / len(total_times) if total_times else 0
+
+        logging.info(f"Run {run + 1} - Total execution time: {(end_time - start_time) * 1000:.4f} ms")
         logging.info(f"Run {run + 1} - Number of query_stock: {operation_counts['query_stock']}")
         logging.info(f"Run {run + 1} - Number of update_inventory: {operation_counts['update_inventory']}")
         logging.info(f"Run {run + 1} - Number of add_store: {operation_counts['add_store']}")
         logging.info(f"Run {run + 1} - Number of add_product: {operation_counts['add_product']}")
-        logging.info(f"Run {run + 1} - Average read time: {avg_read_time:.4f} seconds")
-        logging.info(f"Run {run + 1} - Average write time: {avg_write_time:.4f} seconds")
+        logging.info(f"Run {run + 1} - Average read time: {avg_read_time:.4f} ms")
+        logging.info(f"Run {run + 1} - Average write time: {avg_write_time:.4f} ms")
 
-    final_avg_total_time = sum(total_times) / len(total_times)
-    final_avg_read_time = sum(all_read_times) / len(all_read_times)
-    final_avg_write_time = sum(all_write_times) / len(all_write_times)
+    # final_avg_total_time = sum(total_times) / len(total_times) if total_times else 0
+    # final_avg_read_time = sum(all_read_times) / len(all_read_times) if all_read_times else 0
+    # final_avg_write_time = sum(all_write_times) / len(all_write_times) if all_write_times else 0
     
-    logging.info(f"Final Average total execution time: {final_avg_total_time:.4f} seconds")
-    logging.info(f"Final Average read time: {final_avg_read_time:.4f} seconds")
-    logging.info(f"Final Average write time: {final_avg_write_time:.4f} seconds")
+    final_avg_total_time = sum(total_times) / len(total_times) if total_times else 0
+    final_avg_read_time = sum([sum(rt) for rt in all_read_times]) / len(all_read_times) if all_read_times else 0
+    final_avg_write_time = sum([sum(wt) for wt in all_write_times]) / len(all_write_times) if all_write_times else 0
+
+    logging.info(f"Final Average total execution time: {final_avg_total_time:.4f} ms")
+    logging.info(f"Final Average read time: {final_avg_read_time:.4f} ms")
+    logging.info(f"Final Average write time: {final_avg_write_time:.4f} ms")
     logging.info(f"Total Number of query_stock: {total_operations['query_stock']}")
     logging.info(f"Total Number of update_inventory: {total_operations['update_inventory']}")
     logging.info(f"Total Number of add_store: {total_operations['add_store']}")
     logging.info(f"Total Number of add_product: {total_operations['add_product']}")
+    
+    # Flatten the lists for scatter plots
+    # flat_all_read_times = [time for sublist in all_read_times for time in sublist]
+    # flat_all_write_times = [time for sublist in all_write_times for time in sublist]
+    flat_all_read_times = [sum(itens) for itens in all_read_times]
+    flat_all_write_times = [sum(itens) for itens in all_write_times]
 
-    # Plot individual run times
-    for run, (total_time, read_time, write_time) in enumerate(zip(total_times, all_read_times, all_write_times)):
-        plt.figure()
-        plt.bar(['Total Time', 'Read Time', 'Write Time'], [total_time, read_time, write_time])
-        plt.title(f'Performance for Run {run + 1}')
-        plt.ylabel('Time (seconds)')
-        plt.savefig(f'performance_run_{run + 1}.png')
-        plt.close()
+    # Max values and subdivisions for vertical and horizontal axes
+    # max_read_time = max(all_read_times) if all_read_times else 0
+    max_read_time = max(flat_all_read_times) if flat_all_read_times else 0
+    # max_write_time = max(all_write_times) if all_write_times else 0
+    max_write_time = max(flat_all_write_times) if flat_all_write_times else 0
+    max_total_time = max(total_times) if total_times else 0
+    max_operations = max(num_operations, runs)
 
-    # Plot aggregate run times
-    plt.figure()
-    plt.bar(['Total Time', 'Read Time', 'Write Time'], [final_avg_total_time, final_avg_read_time, final_avg_write_time])
-    plt.title('Aggregate Performance Across Runs')
-    plt.ylabel('Time (seconds)')
-    plt.savefig('aggregate_performance.png')
+    # Scatter plot for total read times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    # plt.scatter(range(len(all_read_times)), all_read_times)
+    plt.scatter(range(len(flat_all_read_times)), flat_all_read_times)
+    plt.axhline(y=final_avg_read_time, color='r', linestyle='-', label=f'Avg: {final_avg_read_time:.2f} ms')
+    plt.title('Total Read Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Read Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_read_time + 5, 5))
+    # plt.yticks(np.arange(0, max(max_read_time) + 5, 5))
+    # plt.yticks(np.arange(0, max_read_time, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    plt.savefig(os.path.join(output_folder, 'total_read_times_all_runs.png'))
     plt.close()
+
+    # Scatter plot for total write times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    # plt.scatter(range(len(all_write_times)), all_write_times)
+    plt.scatter(range(len(flat_all_write_times)), flat_all_write_times)
+    plt.axhline(y=final_avg_write_time, color='r', linestyle='-', label=f'Avg: {final_avg_write_time:.2f} ms')
+    plt.title('Total Write Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Write Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_write_time + 5, 5))
+    # plt.yticks(np.arange(0, max(max_write_time) + 5, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    plt.savefig(os.path.join(output_folder, 'total_write_times_all_runs.png'))
+    plt.close()
+
+    # Scatter plot for total execution times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.scatter(range(len(total_times)), total_times)
+    plt.axhline(y=final_avg_total_time, color='r', linestyle='-', label=f'Avg: {final_avg_total_time:.2f} ms')
+    plt.title('Total Execution Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Total Execution Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_total_time + 5, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    plt.savefig(os.path.join(output_folder, 'total_execution_times_all_runs.png'))
+    plt.close()
+
+    # Bar chart with average line for read times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    # plt.bar(range(len(all_read_times)), all_read_times)
+    plt.bar(range(len(flat_all_read_times)), flat_all_read_times)
+    plt.axhline(y=final_avg_read_time, color='r', linestyle='-', label=f'Avg: {final_avg_read_time:.2f} ms')
+    plt.title('Read Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Read Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_read_time + 5, 5))
+    # plt.yticks(np.arange(0, max(max_read_time) + 5, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    # for i, v in enumerate(all_read_times):
+    # for i, v in enumerate(flat_all_read_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, 'read_times_bar_all_runs.png'))
+    plt.close()
+
+    # Bar chart with average line for write times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    # plt.bar(range(len(all_write_times)), all_write_times)
+    plt.bar(range(len(flat_all_write_times)), flat_all_write_times)
+    plt.axhline(y=final_avg_write_time, color='r', linestyle='-', label=f'Avg: {final_avg_write_time:.2f} ms')
+    plt.title('Write Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Write Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_write_time + 5, 5))
+    # plt.yticks(np.arange(0, max(max_write_time) + 5, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    # for i, v in enumerate(all_write_times):
+    # for i, v in enumerate(flat_all_write_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, 'write_times_bar_all_runs.png'))
+    plt.close()
+
+    # Bar chart with average line for total times across all runs
+    plt.figure(figsize=(chart_width / 100, 6))
+    plt.bar(range(len(total_times)), total_times)
+    plt.axhline(y=final_avg_total_time, color='r', linestyle='-', label=f'Avg: {final_avg_total_time:.2f} ms')
+    plt.title('Total Execution Times Across All Runs')
+    plt.xlabel('Operation')
+    plt.ylabel('Total Execution Time (ms)')
+    plt.legend()
+    plt.yticks(np.arange(0, max_total_time + 5, 5))
+    plt.xticks(np.arange(0, max_operations, max(10, max_operations // 10)))
+    # for i, v in enumerate(total_times):
+    #     plt.text(i, v + 0.5, f"{v:.2f}", ha='center')
+    plt.savefig(os.path.join(output_folder, 'total_execution_times_bar_all_runs.png'))
+    plt.close()
+
+
+    # max_read_time = max(max(sublist) for sublist in all_read_times if sublist)
+    # max_write_time = max(max(sublist) for sublist in all_write_times if sublist)
+    
+    # Bar chart comparing read and write times for each run
+    plt.figure(figsize=(chart_width / 100, 6))
+    bar_width = 0.35
+    index = np.arange(runs)
+    plt.bar(index, [sum(read_times) for read_times in all_read_times], bar_width, label='Read Time')
+    plt.bar(index + bar_width, [sum(write_times) for write_times in all_write_times], bar_width, label='Write Time')
+    plt.title('Read vs Write Times for Each Run')
+    plt.xlabel('Run')
+    plt.ylabel('Time (ms)')
+    plt.xticks(index + bar_width / 2, np.arange(runs))
+    #plt.yticks(np.arange(0, max(max(all_read_times), max(all_write_times)) + 250, 250))
+    plt.yticks(np.arange(0, max(max(flat_all_read_times), max(flat_all_write_times)) + 250, 250))
+    # plt.yticks(np.arange(0, max(max_read_time, max_write_time) + 250, 250))
+    plt.legend()
+    plt.savefig(os.path.join(output_folder, 'read_vs_write_each_run.png'))
+    plt.close()
+
+    # Candlestick chart comparing read and write times for each run
+    # df = pd.DataFrame({
+    #     'read_times': [sum(read_times) for read_times in all_read_times],
+    #     'write_times': [sum(write_times) for write_times in all_write_times]
+    # })
+    # df['run'] = np.arange(runs)
+    # # df.set_index('run', inplace=True)
+
+    # # mpf.plot(
+    # #     df,
+    # #     type='candle',
+    # #     style='charles',
+    # #     title='Candlestick Chart of Read vs Write Times for Each Run',
+    # #     ylabel='Time (ms)',
+    # #     savefig=os.path.join(output_folder, 'candlestick_read_vs_write_each_run.png')
+    # # )
+    # # Configurando o gráfico
+    # fig, ax = plt.subplots()
+
+    # # Para cada run, desenhe um candlestick
+    # for i in range(len(df)):
+    #     # Definindo cores para os candlesticks baseado na comparação entre leitura e escrita
+    #     color = 'green' if df.loc[i, 'read_times'] <= df.loc[i, 'write_times'] else 'red'
+        
+    #     # Desenhando o corpo do candlestick
+    #     ax.plot([i, i], [df.loc[i, 'read_times'], df.loc[i, 'write_times']], color=color, lw=2)
+        
+    #     # Aqui você adicionaria o código para desenhar as sombras dos candlesticks
+    #     # Como não temos dados de máximo e mínimo, isso será omitido
+
+    # # Configurações adicionais do gráfico
+    # ax.set_title('Candlestick Chart of Read vs Write Times for Each Run')
+    # ax.set_ylabel('Time (ms)')
+    # ax.set_xticks(range(len(df)))
+    # ax.set_xticklabels(df['run'])
+
+    # # Salvando o gráfico
+    # plt.savefig(os.path.join(output_folder, 'candlestick_read_vs_write_each_run_matplotlib.png'))
+    
+    # Convert times to DataFrame
+    df = pd.DataFrame({
+        'run': np.arange(runs),
+        'read_times': [sum(rt) for rt in all_read_times],
+        'write_times': [sum(wt) for wt in all_write_times]
+    })
+    df['total_times'] = df['read_times'] + df['write_times']
+
+    # Generate candlestick chart
+    fig, ax = plt.subplots(figsize=(chart_width / 100, 6))
+    for idx, row in df.iterrows():
+        ax.plot([row['run'], row['run']], [row['write_times'], row['read_times']], color='black')
+        ax.plot(row['run'], row['write_times'], marker='o', color='red')
+        ax.plot(row['run'], row['read_times'], marker='o', color='green')
+    ax.set_title('Candlestick Chart of Read vs Write Times for Each Run')
+    ax.set_xlabel('Run')
+    ax.set_ylabel('Time (ms)')
+    ax.set_xticks(np.arange(0, runs, max(1, runs // 10)))
+    ax.set_yticks(np.arange(0, max(max_read_time, max_write_time) + 5, 5))
+    #fig.legend(['Write Time', 'Read Time'])
+    plt.savefig(os.path.join(output_folder, 'candlestick_read_vs_write_each_run.png'))
+    plt.close()
+
 
 
 #############
@@ -442,5 +781,10 @@ def measure_performance(runs: int = 10, num_operations: int = 1000, percent_core
 
 if __name__ == '__main__':
     log_system_info()
-    check_and_create_db(MONGO_URI, DB_NAME, COLLECTIONS)
-    measure_performance()
+    db = check_and_create_db(MONGO_HOST, MONGO_PORT, DB_NAME, USER, PASS, COLLECTIONS)
+    #print('', db)
+    stores_collection = db['stores']
+    products_collection = db['products']
+    sales_collection = db['sales']
+    measure_performance(10, 100)
+    

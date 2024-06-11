@@ -163,4 +163,5 @@ cython_debug/
 
 
 # Others
-.png
+executions/*
+*.png

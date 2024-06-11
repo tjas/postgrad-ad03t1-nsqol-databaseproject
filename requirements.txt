@@ -1,2 +1,7 @@
 faker==25.3.0
 pymongo==4.7.2
+psutil==5.9.8
+matplotlib==3.9.0
+numpy==1.26.4
+tqdm==4.66.4
+pandas==2.2.2
